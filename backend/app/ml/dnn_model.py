@@ -45,7 +45,14 @@ def build_dnn(input_dim: int):
 
 def train_dnn(X_train: np.ndarray, y_train: np.ndarray,
               X_val: np.ndarray = None, y_val: np.ndarray = None):
-    """Train DNN with EarlyStopping, ReduceLROnPlateau, ModelCheckpoint. Save best model."""
+    """
+    Train DNN on the training split.
+
+    X_val / y_val are the VALIDATION split (20 % of KDDTrain+).
+    They are passed as validation_data= to Keras and used ONLY by callbacks
+    (EarlyStopping, ReduceLROnPlateau, ModelCheckpoint) — never for weight
+    updates.  The held-out test split is kept separate and is not passed here.
+    """
     from tensorflow import keras
     from sklearn.utils.class_weight import compute_class_weight
 
@@ -85,16 +92,28 @@ def train_dnn(X_train: np.ndarray, y_train: np.ndarray,
 
 def evaluate_dnn(model, X_test: np.ndarray, y_test: np.ndarray) -> dict:
     """
-    Evaluate trained DNN on the test set (KDDTest+).
-    Computes: Accuracy, Precision, Recall, F1 (per-class + macro),
-              False Positive Rate, ROC-AUC (OvR macro), Confusion Matrix.
+    Evaluate the trained DNN on the held-out test split.
+
+    The test split is 20 % of KDDTrain+.txt, stratified, set aside before
+    any preprocessing fitting, Random Forest training, or DNN training.
+    It is used exactly once — here — to report unbiased final metrics.
+
+    Note: KDDTest+.txt (from UNB) contains only generic 'Attack'/'Normal'
+    labels and cannot be used for 5-class evaluation.
+
+    Computes:
+      - Accuracy
+      - Per-class + macro Precision, Recall, F1-score
+      - Per-class + macro False Positive Rate (FP / (FP + TN))
+      - ROC-AUC (One-vs-Rest, macro average)
+      - 5x5 Confusion Matrix
     Saves results to MODELS_DIR/metrics.json.
     """
     from sklearn.metrics import (accuracy_score, classification_report,
                                   confusion_matrix, roc_auc_score)
     from sklearn.preprocessing import label_binarize
 
-    print("\n📊 Evaluating DNN on KDDTest+...")
+    print("\n  Evaluating DNN on held-out test split (20 % of KDDTrain+) ...")
     label_encoder = joblib.load(os.path.join(MODELS_DIR, 'label_encoder.pkl'))
     class_names = list(label_encoder.classes_)
 

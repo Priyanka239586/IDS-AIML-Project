@@ -1,15 +1,30 @@
 """
 Full IDS-AIML Training Pipeline.
 
-Steps:
-  1. Load KDDTrain+.txt  (KDDTest+.txt has only binary 'Attack'/'Normal' labels,
-     so it cannot be used for 5-class evaluation)
-  2. Map specific attack names -> 5 categories (Normal/DoS/Probe/R2L/U2R)
-  3. Stratified 80/20 split -> train / held-out test set
-  4. Fit OrdinalEncoder + StandardScaler + LabelEncoder on train; apply to test
-  5. Train Random Forest (150 trees) -> feature importances -> select top features
-  6. Train DNN on selected features (held-out test used as validation)
-  7. Evaluate DNN on held-out test -> save metrics.json
+Data note
+---------
+KDDTest+.txt (from UNB) contains only generic 'Attack'/'Normal' labels, so it
+cannot be used for 5-class evaluation.  All splits come from KDDTrain+.txt:
+
+  60 %  train  – fit OrdinalEncoder, StandardScaler, LabelEncoder, Random Forest,
+                  and DNN weights.
+  20 %  val    – EarlyStopping / ReduceLROnPlateau / ModelCheckpoint ONLY.
+                  The model never sees val labels during forward passes that
+                  update weights; they are used solely for callback monitoring.
+  20 %  test   – held out completely until final evaluate_dnn() call.
+                  Not touched during preprocessing fitting, RF training, or
+                  DNN training callbacks.
+
+Steps
+-----
+  1. Load KDDTrain+.txt
+  2. Map specific attack names -> 5 categories (Normal / DoS / Probe / R2L / U2R)
+  3. Stratified 60 / 20 / 20 split  (random_state=42, reproducible)
+  4. Fit OrdinalEncoder + StandardScaler + LabelEncoder on train only;
+     apply (transform only) to val and test
+  5. Train Random Forest on train only -> feature importances -> select features
+  6. Train DNN on train features; val features used by callbacks only
+  7. Evaluate on untouched test set -> save metrics.json
 
 Run from the backend/ directory:
     py -3.11 -m app.ml.train
@@ -69,38 +84,62 @@ def main() -> None:
     for cat, cnt in df_all['category'].value_counts().items():
         print("    {:<10} {:>7,}".format(cat, cnt))
 
-    # -- 4. Stratified 80/20 split (reproducible) ------------------------
+    # -- 4. Stratified 60 / 20 / 20 split --------------------------------
+    #
+    #   train  (60 %) – used to fit ALL preprocessing and the DNN weights
+    #   val    (20 %) – used ONLY by callbacks (EarlyStopping / ReduceLR /
+    #                   ModelCheckpoint); never used to update weights
+    #   test   (20 %) – untouched until the single final evaluate_dnn() call
+    #
     from sklearn.model_selection import train_test_split
-    df_train, df_test = train_test_split(
+
+    # First: 80 / 20  ->  (train+val) / test
+    df_trainval, df_test = train_test_split(
         df_all, test_size=0.20, random_state=42, stratify=df_all['category']
     )
-    print("\n  Train split : {:>7,} rows  (80 %)".format(len(df_train)))
-    print("  Test  split : {:>7,} rows  (20 %, held-out for real evaluation)".format(len(df_test)))
+    # Then: split train+val 75 / 25  ->  train (60 %) / val (20 %)
+    df_train, df_val = train_test_split(
+        df_trainval, test_size=0.25, random_state=42, stratify=df_trainval['category']
+    )
+
+    print("\n  Train : {:>7,} rows  (60 % — fit preprocessing + RF + DNN weights)".format(len(df_train)))
+    print("  Val   : {:>7,} rows  (20 % — EarlyStopping / ModelCheckpoint only)".format(len(df_val)))
+    print("  Test  : {:>7,} rows  (20 % — untouched; final evaluation only)".format(len(df_test)))
 
     print("\n  Test split class distribution:")
     for cat, cnt in df_test['category'].value_counts().items():
         print("    {:<10} {:>7,}".format(cat, cnt))
 
     # -- 5. Preprocess ---------------------------------------------------
+    #   Encoders and scaler are fitted on TRAIN ONLY.
+    #   Val and test are transformed using the already-fitted objects.
     os.makedirs(MODELS_DIR, exist_ok=True)
-    print("\n  Preprocessing train split (fit encoders + scaler) ...")
+    print("\n  Preprocessing: fit on train split ...")
     X_train_scaled, y_train, feature_names = fit_preprocess_train(df_train)
 
-    print("\n  Preprocessing test split (apply saved encoders) ...")
+    print("  Preprocessing: transform val split ...")
+    X_val_scaled, y_val = preprocess_test(df_val)
+
+    print("  Preprocessing: transform test split ...")
     X_test_scaled, y_test = preprocess_test(df_test)
 
     # -- 6. Random Forest ------------------------------------------------
+    #   RF is trained on the train split only.
     selected_features, _ = train_random_forest(X_train_scaled, y_train, feature_names)
 
     sel_idx = [feature_names.index(f) for f in selected_features]
     X_train_sel = X_train_scaled[:, sel_idx]
+    X_val_sel   = X_val_scaled[:, sel_idx]
     X_test_sel  = X_test_scaled[:, sel_idx]
     print("\n  DNN input dimension: {} RF-selected features".format(X_train_sel.shape[1]))
 
     # -- 7. Train DNN ----------------------------------------------------
-    model, _ = train_dnn(X_train_sel, y_train, X_test_sel, y_test)
+    #   DNN weights are updated from X_train_sel / y_train only.
+    #   X_val_sel / y_val are passed as validation_data= to Keras, which
+    #   means they are used only by callbacks and never for gradient updates.
+    model, _ = train_dnn(X_train_sel, y_train, X_val_sel, y_val)
 
-    # -- 8. Evaluate -----------------------------------------------------
+    # -- 8. Evaluate on untouched test set --------------------------------
     metrics = evaluate_dnn(model, X_test_sel, y_test)
 
     elapsed = time.time() - t0

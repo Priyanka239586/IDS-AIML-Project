@@ -1,4 +1,16 @@
-"""GET /metrics  and  GET /metrics/confusion-matrix"""
+"""
+GET /metrics              — Full evaluation metrics from the held-out test split
+GET /metrics/confusion-matrix — 5x5 confusion matrix
+
+Evaluation note
+---------------
+The metrics in metrics.json are computed on a held-out TEST split that is
+20 % of KDDTrain+.txt (stratified, random_state=42).  This split is set aside
+before any preprocessing fitting, Random Forest training, or DNN training.
+
+KDDTest+.txt (from UNB) uses only generic 'Attack'/'Normal' labels and cannot
+be used for 5-class evaluation, so it is not used here.
+"""
 
 import os
 import json
@@ -21,17 +33,19 @@ def _load() -> dict:
         return json.load(fh)
 
 
-@router.get("/", summary="All evaluation metrics from KDDTest+")
+@router.get("/", summary="All evaluation metrics (held-out test split of KDDTrain+)")
 async def get_metrics():
     """
-    Returns accuracy, precision, recall, F1, FPR, ROC-AUC, and per-class breakdowns.
-    These are REAL metrics computed on KDDTest+ — not simulated.
+    Returns accuracy, precision, recall, F1, FPR, ROC-AUC, and per-class
+    breakdowns.  All values are REAL metrics computed on the held-out test
+    split (20 % of KDDTrain+, stratified) — not simulated, and not from
+    KDDTest+.txt (which lacks per-class labels).
     """
     return _load()
 
 
 @router.get("/confusion-matrix", summary="5x5 confusion matrix")
 async def get_confusion_matrix():
-    """Returns the 5×5 confusion matrix and class names."""
+    """Returns the 5x5 confusion matrix and class names from the held-out test split."""
     data = _load()
     return {"confusion_matrix": data["confusion_matrix"], "class_names": data["class_names"]}
