@@ -1,0 +1,69 @@
+# ── Python / Backend ─────────────────────────────────────────────────────────
+# Virtual environments
+backend/venv/
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Environment / Secrets ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env
+backend/.env
+frontend/.env
+
+# ── ML Model Artifacts (large binary files — regenerate with training) ────────
+backend/app/models/dnn_model.keras
+backend/app/models/rf_model.pkl
+backend/app/models/*.pkl
+backend/app/models/*.keras
+# Keep JSON artifacts (small, useful for reference)
+# backend/app/models/*.json  <-- NOT ignored; these are small and useful
+
+# ── NSL-KDD Datasets (large; users must download from UNB themselves) ─────────
+backend/app/data/KDDTrain+.txt
+backend/app/data/KDDTest+.txt
+datasets/KDDTrain+.txt
+datasets/KDDTest+.txt
+datasets/*.txt
+datasets/*.arff
+datasets/*.csv
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+node_modules/
+
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
